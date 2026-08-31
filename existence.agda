@@ -1,5 +1,8 @@
-{-# OPTIONS --rewriting #-}
+{-# OPTIONS --safe #-}
 
+open import interface
+
+module existence (funext : Funext) (VI : VarInterface) where
 
 open import Data.Nat
 open import Data.Nat.Properties
@@ -13,17 +16,34 @@ open import Relation.Binary.PropositionalEquality hiding ([_])
 open import Relation.Nullary.Decidable hiding (map)
 open import Data.List using (List; []; _∷_)
 
-open import core
+import core
+open module coreI = core funext VI
 
-{-# TERMINATING #-}
-size : Pattern -> ℕ 
-size (X x) = 0
-size (K k n ps) = 1 + sum (map size ps)
+mutual
+    size : Pattern -> ℕ
+    size (X x) = 0
+    size (K k n ps) = 1 + sizes ps
 
-{-# TERMINATING #-}
-size-diff : (s : Sub) -> (p : Pattern) -> ℕ
-size-diff s (X x) = size (s x)
-size-diff s (K k n ps) = sum (map (size-diff s) ps)
+    sizes : ∀{n} -> Vec Pattern n -> ℕ
+    sizes [] = 0
+    sizes (p ∷ ps) = size p + sizes ps
+
+sizes-map : ∀{n} -> (ps : Vec Pattern n) -> sizes ps ≡ sum (map size ps)
+sizes-map [] = refl
+sizes-map (p ∷ ps) rewrite sizes-map ps = refl
+
+mutual
+    size-diff : (s : Sub) -> (p : Pattern) -> ℕ
+    size-diff s (X x) = size (s x)
+    size-diff s (K k n ps) = size-diffs s ps
+
+    size-diffs : ∀{n} -> (s : Sub) -> Vec Pattern n -> ℕ
+    size-diffs s [] = 0
+    size-diffs s (p ∷ ps) = size-diff s p + size-diffs s ps
+
+size-diffs-map : ∀{n} -> (s : Sub) -> (ps : Vec Pattern n) -> size-diffs s ps ≡ sum (map (size-diff s) ps)
+size-diffs-map s [] = refl
+size-diffs-map s (p ∷ ps) rewrite size-diffs-map s ps = refl
 
 metric : (s1 s2 : Sub) -> (p1 p2 : Pattern) -> ℕ
 metric s1 s2 p1 p2 = size-diff s1 p1 + size-diff s2 p2
@@ -88,7 +108,9 @@ mutual
         -> equiv-constructor p (s [ p ]) 
     size-diff-zero s (X x) eq with s x 
     size-diff-zero s (X x) eq | X _ = ECX
-    size-diff-zero s (K k n ps) eq = ECK (size-diff-zero-map s ps eq)
+    size-diff-zero s (K k n ps) eq
+        rewrite subs-map s ps
+        = ECK (size-diff-zero-map s ps (trans (sym (size-diffs-map s ps)) eq))
 
 -- begin machine generated code 
 
@@ -126,7 +148,7 @@ X-inj refl = refl
 -- L-injectivity from Cleft isomorphism
 L-inj : {x y : Var} -> L x ≡ L y -> x ≡ y
 L-inj eq with cong (_≅_.to Cleft) eq
-... | ceq = inj₁-inj ceq
+... | ceq = inj₁-inj (trans (sym tofrom) (trans ceq tofrom))
     where
     inj₁-inj : ∀{A B : Set}{a b : A} -> _≡_ {_} {A ⊎ B} (inj₁ a) (inj₁ b) -> a ≡ b
     inj₁-inj refl = refl
@@ -134,7 +156,7 @@ L-inj eq with cong (_≅_.to Cleft) eq
 -- R-injectivity from Cleft isomorphism
 R-inj : {x y : Var} -> R x ≡ R y -> x ≡ y
 R-inj eq with cong (_≅_.to Cleft) eq
-... | ceq = inj₂-inj ceq
+... | ceq = inj₂-inj (trans (sym tofrom) (trans ceq tofrom))
     where
     inj₂-inj : ∀{A B : Set}{a b : B} -> _≡_ {_} {A ⊎ B} (inj₂ a) (inj₂ b) -> a ≡ b
     inj₂-inj refl = refl
@@ -142,7 +164,7 @@ R-inj eq with cong (_≅_.to Cleft) eq
 -- L and R are disjoint (from inj₁ ≢ inj₂)
 L-R-disjoint : {x y : Var} -> L x ≢ R y
 L-R-disjoint eq with cong (_≅_.to Cleft) eq
-... | ceq = inj₁≢inj₂ ceq
+... | ceq = inj₁≢inj₂ (trans (sym tofrom) (trans ceq tofrom))
     where
     inj₁≢inj₂ : ∀{A B : Set}{a : A}{b : B} -> _≡_ {_} {A ⊎ B} (inj₁ a) (inj₂ b) -> ⊥
     inj₁≢inj₂ ()
@@ -184,8 +206,14 @@ mutual
         -> toSub f [ p1 ] ≡ toSub g [ p2 ]
         -> toSub (h ∘v f) [ p1 ] ≡ toSub (h ∘v g) [ p2 ]
     lift-ec h f g ECX eq = cong (λ v → X (h v)) (X-inj eq)
-    lift-ec h f g (ECK {k} {n} ecs) eq =
-        cong (K k n) (lift-ec-vec h f g ecs (K-inj-ps eq))
+    lift-ec h f g (ECK {k} {n} {ps1} {ps2} ecs) eq =
+        cong (K k n) (trans (subs-map (toSub (h ∘v f)) ps1)
+            (trans (lift-ec-vec h f g ecs bridged)
+                (sym (subs-map (toSub (h ∘v g)) ps2))))
+        where
+        bridged : map (_[_] (toSub f)) ps1 ≡ map (_[_] (toSub g)) ps2
+        bridged = trans (sym (subs-map (toSub f) ps1))
+            (trans (K-inj-ps eq) (subs-map (toSub g) ps2))
 
 -- Lookup and sp
 LookupEntry : Set
@@ -263,7 +291,23 @@ sp-of-extend-miss fk x1 ent s1' s2' v neq with cleave v in cv
 -- sp-of on a hit: R(Fresh fk) maps to s1' x1
 sp-of-extend-hit : (fk : ℕ) (x1 : Var) (ent : List LookupEntry) (s1' s2' : Sub)
     -> sp-of ((Fresh fk , x1) ∷ ent) s1' s2' (R (Fresh fk)) ≡ s1' x1
-sp-of-extend-hit fk x1 ent s1' s2' = cong s1' (lookup-hit (Fresh fk) x1 ent)
+sp-of-extend-hit fk x1 ent s1' s2'
+    rewrite tofrom {b = inj₂ (Fresh fk)}
+    = cong s1' (lookup-hit (Fresh fk) x1 ent)
+
+sp-of-LL : (ent : List LookupEntry) (s1' s2' : Sub) (v : Var)
+    -> sp-of ent s1' s2' (L (L v)) ≡ s1' v
+sp-of-LL ent s1' s2' v
+    rewrite tofrom {b = inj₁ (L v)}
+    rewrite tofrom {b = inj₁ v}
+    = refl
+
+sp-of-LR : (ent : List LookupEntry) (s1' s2' : Sub) (v : Var)
+    -> sp-of ent s1' s2' (L (R v)) ≡ s2' v
+sp-of-LR ent s1' s2' v
+    rewrite tofrom {b = inj₁ (R v)}
+    rewrite tofrom {b = inj₂ v}
+    = refl
 
 -- Result records
 record Solved {p1 p2 : Pattern} (ec : equiv-constructor p1 p2)
@@ -391,15 +435,17 @@ mutual
             right-inv v = trans (sp-of-ren (f x1) (g x2) k x1 ent s1' s2' (g v)
                 (fi x1) (trans (gi x2) (sym u')) (proj₂ (fr k ≤-refl v))) (gi v)
 
-    solve (ECK {kk} {n} ecs) f g ent k fr with solve-vec ecs f g ent k fr
-    ... | MkSolvedVec f' g' ent' k' h fd gd u fr' m = MkSolved f' g' ent' k' h fd gd (cong (K kk n) u) fr' mgu-k
+    solve (ECK {kk} {n} {ps1} {ps2} ecs) f g ent k fr with solve-vec ecs f g ent k fr
+    ... | MkSolvedVec f' g' ent' k' h fd gd u fr' m = MkSolved f' g' ent' k' h fd gd
+        (cong (K kk n) (trans (subs-map (toSub f') ps1) (trans u (sym (subs-map (toSub g') ps2))))) fr' mgu-k
         where
-        mgu-k : (s1' s2' : Sub) -> (_,_unifies_,_ s1' s2' (K kk n _) (K kk n _))
+        mgu-k : (s1' s2' : Sub) -> (_,_unifies_,_ s1' s2' (K kk n ps1) (K kk n ps2))
             -> ((v : Var) -> sp-of ent s1' s2' (f v) ≡ s1' v)
             -> ((v : Var) -> sp-of ent s1' s2' (g v) ≡ s2' v)
             -> ((v : Var) -> sp-of ent' s1' s2' (f' v) ≡ s1' v)
              × ((v : Var) -> sp-of ent' s1' s2' (g' v) ≡ s2' v)
-        mgu-k s1' s2' (Unify u') fi gi = m s1' s2' (K-inj-ps u') fi gi
+        mgu-k s1' s2' (Unify u') fi gi = m s1' s2'
+            (trans (sym (subs-map s1' ps1)) (trans (K-inj-ps u') (subs-map s2' ps2))) fi gi
 
 generalization-equiv-constructor : ∀{p1 p2}
     -> equiv-constructor p1 p2
@@ -409,7 +455,7 @@ generalization-equiv-constructor ec with solve ec (L ∘v L) (L ∘v R) [] 0 ini
     where
     mgu' : (s1' s2' : Sub) -> (_,_unifies_,_ s1' s2' _ _)
         -> s1' ⊑ toSub f × s2' ⊑ toSub g
-    mgu' s1' s2' u' with m s1' s2' u' (λ v → refl) (λ v → refl)
+    mgu' s1' s2' u' with m s1' s2' u' (sp-of-LL [] s1' s2') (sp-of-LR [] s1' s2')
     ... | fi , gi = Prec (sp-of ent' s1' s2') (funext (λ v → sym (fi v)))
                   , Prec (sp-of ent' s1' s2') (funext (λ v → sym (gi v)))
 
@@ -535,14 +581,12 @@ cons-preunify-tl {s1} {s2} {p1} {p2} {k} {n} {ps1} {ps2} (PU pu) = PU pu'
 -- split-leq-cons-preunify {s1} {s2} {p1} {p2} {k} {n} {PU pu} {ps1} {ps2} leq s1' s2' (Unify u) with pu s1' s2' ((Unify (cons-inj (K-inj-ps u)))) in eq
 -- ... | Prec sp1 eq1 , Prec sp2 eq2 = {!   !}
 
-{-# REWRITE +-suc #-}
-
 metric-lemma-1 : ∀{s3 s4 p1 p2 k1 n1}
     -> {ps1 ps2 : Vec Pattern n1}
     -> metric s3 s4 p1 p2 > 0
     -> metric s3 s4 (K k1 (suc n1) (p1 ∷ ps1)) (K k1 (suc n1) (p2 ∷ ps2)) > 0
 metric-lemma-1 {s3} {s4} {p1} {p2} l with size-diff s3 p1 | size-diff s4 p2
-... | zero | suc _ = s≤s z≤n
+... | zero | suc _ = m≤n⇒m≤o+n _ (s≤s z≤n)
 ... | suc _ | _ = s≤s z≤n
 
 metric-lemma-2 : ∀{s3 s4 p1 p2 k1 n1}
@@ -550,8 +594,8 @@ metric-lemma-2 : ∀{s3 s4 p1 p2 k1 n1}
     -> metric s3 s4 (K k1 n1 ps1) (K k1 n1 ps2) > 0
     -> metric s3 s4 (K k1 (suc n1) (p1 ∷ ps1)) (K k1 (suc n1) (p2 ∷ ps2)) > 0
 metric-lemma-2 {s3} {s4} {p1} {p2} {k1} {n1} {ps1} {ps2} l with size-diff s3 (K k1 n1 ps1) | size-diff s4 (K k1 n1 ps2)
-... | zero | suc _ = s≤s z≤n
-... | suc _ | _ = s≤s z≤n
+... | zero | suc m = m≤n⇒m≤o+n (size-diff s3 p1 + zero) (m≤n⇒m≤o+n (size-diff s4 p2) (s≤s z≤n))
+... | suc m | w2 = m≤n⇒m≤n+o (size-diff s4 p2 + w2) (m≤n⇒m≤o+n (size-diff s3 p1) (s≤s z≤n))
 
 -- begin machine generated code
 
@@ -583,7 +627,12 @@ mutual
         -> (p : Pattern)
         -> size-diff s p + size p ≡ size (s [ p ])
     size-sub s (X x) = +-identityʳ (size (s x))
-    size-sub s (K k n ps) rewrite sym (size-sub-vec s ps) = refl
+    size-sub s (K k n ps)
+        rewrite size-diffs-map s ps
+        rewrite sizes-map ps
+        rewrite subs-map s ps
+        rewrite sizes-map (map (_[_] s) ps)
+        = trans (+-suc _ _) (cong suc (size-sub-vec s ps))
 
 -- Lemma 2: size-diff decomposes over composition
 mutual
@@ -601,7 +650,12 @@ mutual
         -> (p : Pattern)
         -> size-diff (sp ∘ s) p ≡ size-diff sp (s [ p ]) + size-diff s p
     size-diff-comp sp s (X x) = sym (size-sub sp (s x))
-    size-diff-comp sp s (K k n ps) = size-diff-comp-vec sp s ps
+    size-diff-comp sp s (K k n ps)
+        rewrite size-diffs-map (sp ∘ s) ps
+        rewrite subs-map s ps
+        rewrite size-diffs-map sp (map (_[_] s) ps)
+        rewrite size-diffs-map s ps
+        = size-diff-comp-vec sp s ps
 
 -- Lemma 3: metric decomposes over composition
 metric-comp : (sp1 sp2 s1' s2' : Sub) (p1 p2 : Pattern)
@@ -616,6 +670,10 @@ metric-comp sp1 sp2 s1' s2' p1 p2
 -- if a + b ≤ suc n and 1 ≤ b then a ≤ n
 arith-helper : ∀{a b n} -> a + b ≤ suc n -> 1 ≤ b -> a ≤ n
 arith-helper {zero} _ _ = z≤n
+arith-helper {suc a} {suc b} {zero} (s≤s h) (s≤s _) = helper (subst (_≤ zero) (+-suc a b) h)
+    where
+    helper : ∀{m} -> suc m ≤ zero -> suc a ≤ zero
+    helper ()
 arith-helper {suc a} {suc b} {suc n} (s≤s h) (s≤s _) = s≤s (arith-helper {a} {suc b} {n} h (s≤s z≤n))
 
 -- The final result
@@ -632,6 +690,19 @@ metric-inequality {s1} {s2} {s1'} {s2'} {sp1} {sp2} {p1} {p2} {n} eq eq1 eq2 lt
 
 -- end machine generated code
 
+mutual
+    nodes : Pattern -> ℕ
+    nodes (X x) = 1
+    nodes (K k n ps) = 1 + nodess ps
+
+    nodess : ∀{n} -> Vec Pattern n -> ℕ
+    nodess [] = 0
+    nodess (p ∷ ps) = nodes p + nodess ps
+
+nodes-pos : (p : Pattern) -> 1 ≤ nodes p
+nodes-pos (X x) = s≤s z≤n
+nodes-pos (K k n ps) = s≤s z≤n
+
 data SplitResult (p1 p2 : Pattern) : Set where
     SplitEC : equiv-constructor p1 p2
         -> SplitResult p1 p2
@@ -640,23 +711,29 @@ data SplitResult (p1 p2 : Pattern) : Set where
         -> metric s1 s2 p1 p2 > 0
         -> SplitResult p1 p2
 
-{-# TERMINATING #-}
-splitter : ∀{s1 s2 p1 p2}
+splitter-sized : ∀{s1 s2 p1 p2}
+        -> (sz : ℕ)
+        -> nodes p1 + nodes p2 ≤ sz
         -> s1 , s2 unifies p1 , p2
-        -> SplitResult p1 p2 
-splitter {s1} {s2} {X _} {X _} u = SplitEC ECX
+        -> SplitResult p1 p2
+splitter-sized {s1} {s2} {X _} {X _} sz le u = SplitEC ECX
 
-splitter {s1} {s2} {K k1 zero ps1} {K k2 (suc n2) ps2} (Unify ())
-splitter {s1} {s2} {K k1 (suc n1) ps1} {K k2 zero ps2} (Unify ())
-splitter {s1} {s2} {K k1 zero []} {K k2 zero []} (Unify refl) = SplitEC (ECK tt)
-splitter {s1} {s2} {K k1 (suc n1) (p1 ∷ ps1)} {K k2 (suc n2) (p2 ∷ ps2)} (Unify u) with K-inj-kn u
-splitter {s1} {s2} {K k1 (suc n1) (p1 ∷ ps1)} {K .(k1) (suc n2) (p2 ∷ ps2)} (Unify u) | refl , refl with splitter {s1} {s2} {p1} {p2} (Unify (cons-inj (K-inj-ps u))) 
+splitter-sized {s1} {s2} {K k1 zero ps1} {K k2 (suc n2) ps2} sz le (Unify ())
+splitter-sized {s1} {s2} {K k1 (suc n1) ps1} {K k2 zero ps2} sz le (Unify ())
+splitter-sized {s1} {s2} {K k1 zero []} {K k2 zero []} sz le (Unify refl) = SplitEC (ECK tt)
+splitter-sized {s1} {s2} {K k1 (suc n1) (p1 ∷ ps1)} {K k2 (suc n2) (p2 ∷ ps2)} zero () u
+splitter-sized {s1} {s2} {K k1 (suc n1) (p1 ∷ ps1)} {K k2 (suc n2) (p2 ∷ ps2)} (suc sz) (s≤s le) (Unify u) with K-inj-kn u
+splitter-sized {s1} {s2} {K k1 (suc n1) (p1 ∷ ps1)} {K .(k1) (suc n2) (p2 ∷ ps2)} (suc sz) (s≤s le) (Unify u) | refl , refl with splitter-sized {s1} {s2} {p1} {p2} sz
+        (≤-trans (+-mono-≤ (m≤m+n (nodes p1) (nodess ps1)) (≤-trans (m≤m+n (nodes p2) (nodess ps2)) (n≤1+n _))) le)
+        (Unify (cons-inj (K-inj-ps u)))
 ... | SplitPU s3 s4 pu lt = SplitPU s3 s4 (cons-preunify pu) (metric-lemma-1 {s3} {s4} {p1} {p2} {k1} {n1} {ps1} {ps2} lt)
-... | SplitEC ec with splitter {s1} {s2} {K k1 (n1) (ps1)} {K k1 (n2) (ps2)} (Unify (cong (K k1 n1) (cons-inj-tl (K-inj-ps u))))
+... | SplitEC ec with splitter-sized {s1} {s2} {K k1 (n1) (ps1)} {K k1 (n2) (ps2)} sz
+        (≤-trans (+-mono-≤ (+-mono-≤ (nodes-pos p1) (≤-refl {x = nodess ps1})) (s≤s (m≤n+m (nodess ps2) (nodes p2)))) le)
+        (Unify (cong (K k1 n1) (cons-inj-tl (K-inj-ps u))))
 ... | SplitEC (ECK ecs) = SplitEC (ECK (ec , ecs))
 ... | SplitPU s3 s4 pu lt = SplitPU s3 s4 (cons-preunify-tl pu) (metric-lemma-2 {s3} {s4} {p1} {p2} {k1} {n1} {ps1} {ps2} lt)
 
-splitter {s1} {s2} {X x} {K k n ps} u = SplitPU s1' sid (PU pu) ineq
+splitter-sized {s1} {s2} {X x} {K k n ps} sz le u = SplitPU s1' sid (PU pu) ineq
     where
     s1' : Sub
     s1' x' with x ≟v x' 
@@ -679,12 +756,14 @@ splitter {s1} {s2} {X x} {K k n ps} u = SplitPU s1' sid (PU pu) ineq
         ... | inj₂ x' = s1'' x'
 
         equiv : (x' : Var) → s1'' x' ≡ ((sp ps) ∘ s1') x'
-        equiv x' with x ≟v x' 
+        equiv x' with x ≟v x'
         equiv x' | no _ with cleave (R x') in eq'
-        equiv x' | no _ | inj₁ _ = refl
-        equiv x' | no _ | inj₂ _ with eq' 
-        equiv x' | no _ | inj₂ _ | refl = refl
-        equiv x' | yes refl = trans eq (cong (K k n) (equiv-children ps PrefixSelf))
+        equiv x' | no _ | inj₁ w = ⊥-elim (L-R-disjoint (sym (trans (sym fromto) (cong (_≅_.from Cleft) eq'))))
+        equiv x' | no _ | inj₂ w = cong s1'' (R-inj (trans (sym fromto) (cong (_≅_.from Cleft) eq')))
+        equiv x' | yes refl = trans eq (cong (K k n)
+            (trans (subs-map s2'' ps)
+                (trans (equiv-children ps PrefixSelf)
+                    (sym (subs-map (sp ps) (freshesL n))))))
             where
             equiv-child2 : ∀{n' n'' p' }
                 -> {ps' : Vec Pattern n''}
@@ -708,16 +787,17 @@ splitter {s1} {s2} {X x} {K k n ps} u = SplitPU s1' sid (PU pu) ineq
                 -> indexof ps' n' p'
                 -> s2'' [ p' ] ≡ sp ps' (L (Fresh n'))
             equiv-child1 {n'} i with cleave (L (Fresh n')) in eq''
-            equiv-child1 {n'} i | inj₁ x = equiv-child2 i 
-            equiv-child1 {n'} i | inj₂ _ with eq'' 
-            equiv-child1 {n'} i | inj₂ _ | () 
+            equiv-child1 {n'} i | inj₁ w
+                rewrite sym (L-inj (trans (sym fromto) (cong (_≅_.from Cleft) eq'')))
+                = equiv-child2 i
+            equiv-child1 {n'} i | inj₂ w = ⊥-elim (L-R-disjoint (trans (sym fromto) (cong (_≅_.from Cleft) eq'')))
 
             equiv-children : {n' : ℕ} -> (ps' : Vec Pattern n') -> prefix ps ps' -> map (_[_] s2'') ps' ≡ map (_[_] (sp ps)) (freshesL n')
             equiv-children [] pref = refl
             equiv-children  {suc n'} (p' ∷ ps') pref = cong₂ _∷_ (equiv-child1 (prefix-to-index pref IndexOfHead)) (equiv-children ps' (PrefixCons pref))
         
 
-splitter {s1} {s2} {K k n ps} {X x} u = SplitPU sid s2' (PU pu) ineq
+splitter-sized {s1} {s2} {K k n ps} {X x} sz le u = SplitPU sid s2' (PU pu) ineq
     where
     s2' : Sub
     s2' x' with x ≟v x' 
@@ -726,7 +806,7 @@ splitter {s1} {s2} {K k n ps} {X x} u = SplitPU sid s2' (PU pu) ineq
 
     ineq : metric sid s2' (K k n ps) (X x) > 0
     ineq with x ≟v x
-    ... | yes refl = s≤s z≤n
+    ... | yes refl = m≤n⇒m≤o+n _ (s≤s z≤n)
     ... | no neq = ⊥-elim (neq refl)
 
     pu : (s1'' s2'' : Sub)
@@ -740,12 +820,14 @@ splitter {s1} {s2} {K k n ps} {X x} u = SplitPU sid s2' (PU pu) ineq
         ... | inj₂ x' = s2'' x'
 
         equiv : (x' : Var) → s2'' x' ≡ ((sp ps) ∘ s2') x'
-        equiv x' with x ≟v x' 
+        equiv x' with x ≟v x'
         equiv x' | no _ with cleave (R x') in eq'
-        equiv x' | no _ | inj₁ _ = refl
-        equiv x' | no _ | inj₂ _ with eq' 
-        equiv x' | no _ | inj₂ _ | refl = refl
-        equiv x' | yes refl = trans (sym eq) (cong (K k n) (equiv-children ps PrefixSelf))
+        equiv x' | no _ | inj₁ w = ⊥-elim (L-R-disjoint (sym (trans (sym fromto) (cong (_≅_.from Cleft) eq'))))
+        equiv x' | no _ | inj₂ w = cong s2'' (R-inj (trans (sym fromto) (cong (_≅_.from Cleft) eq')))
+        equiv x' | yes refl = trans (sym eq) (cong (K k n)
+            (trans (subs-map s1'' ps)
+                (trans (equiv-children ps PrefixSelf)
+                    (sym (subs-map (sp ps) (freshesL n))))))
             where
             equiv-child2 : ∀{n' n'' p' }
                 -> {ps' : Vec Pattern n''}
@@ -769,15 +851,21 @@ splitter {s1} {s2} {K k n ps} {X x} u = SplitPU sid s2' (PU pu) ineq
                 -> indexof ps' n' p'
                 -> s1'' [ p' ] ≡ sp ps' (L (Fresh n'))
             equiv-child1 {n'} i with cleave (L (Fresh n')) in eq''
-            equiv-child1 {n'} i | inj₁ x = equiv-child2 i 
-            equiv-child1 {n'} i | inj₂ _ with eq'' 
-            equiv-child1 {n'} i | inj₂ _ | () 
+            equiv-child1 {n'} i | inj₁ w
+                rewrite sym (L-inj (trans (sym fromto) (cong (_≅_.from Cleft) eq'')))
+                = equiv-child2 i
+            equiv-child1 {n'} i | inj₂ w = ⊥-elim (L-R-disjoint (trans (sym fromto) (cong (_≅_.from Cleft) eq'')))
 
             equiv-children : {n' : ℕ} -> (ps' : Vec Pattern n') -> prefix ps ps' -> map (_[_] s1'') ps' ≡ map (_[_] (sp ps)) (freshesL n')
             equiv-children [] pref = refl
             equiv-children  {suc n'} (p' ∷ ps') pref = cong₂ _∷_ (equiv-child1 (prefix-to-index pref IndexOfHead)) (equiv-children ps' (PrefixCons pref))
 
     
+
+splitter : ∀{s1 s2 p1 p2}
+        -> s1 , s2 unifies p1 , p2
+        -> SplitResult p1 p2
+splitter {s1} {s2} {p1} {p2} u = splitter-sized (nodes p1 + nodes p2) ≤-refl u
 
 generalization-sized : ∀{s1 s2 p1 p2}
     -> (n : ℕ)
@@ -790,24 +878,24 @@ generalization-sized zero eq (Unify u) | zero | zero | ec1 | ec2 rewrite u = gen
 generalization-sized {s1} {s2} {p1} {p2} (suc n) eq u with splitter u 
 generalization-sized {s1} {s2} {p1} {p2} (suc n) eq u | SplitEC ec = generalization-equiv-constructor ec
 generalization-sized {s1} {s2} {p1} {p2} (suc n) eq (Unify u) | SplitPU s1' s2' (PU pu) lt with pu s1 s2 (Unify u) in pu-eq
-generalization-sized {s1} {s2} {p1} {p2} (suc n) eq (Unify u) | SplitPU s1' s2' (PU pu) lt | Prec sp1 eq1 , Prec sp2 eq2 with generalization-sized {sp1} {sp2} {s1' [ p1 ]} {s2' [ p2 ]} n inequation (Unify equation)
-    where 
+generalization-sized {s1} {s2} {p1} {p2} (suc n) eq (Unify u) | SplitPU s1' s2' (PU pu) lt | Prec sp1 eq1 , Prec sp2 eq2 with generalization-sized {sp1} {sp2} {s1' [ p1 ]} {s2' [ p2 ]} n inequation (Unify (trans (sym (∘-eq sp1 s1' p1)) (trans equation (∘-eq sp2 s2' p2))))
+    where
     equation : (sp1 ∘ s1') [ p1 ] ≡ (sp2 ∘ s2') [ p2 ]
     equation rewrite eq1 rewrite eq2 = u
 
     inequation : metric sp1 sp2 (s1' [ p1 ]) (s2' [ p2 ]) ≤ n
     inequation = metric-inequality {s1} {s2} {s1'} {s2'} {sp1} {sp2} {p1} {p2} {n} eq eq1 eq2 lt  
-generalization-sized {s1} {s2} {p1} {p2} (suc n) eq u | SplitPU s1' s2' (PU pu) lt | Prec sp1 eq1 , Prec sp2 eq2 | s1'' , s2'' , MGU (Unify u') mgu = (s1'' ∘ s1') , (s2'' ∘ s2') , MGU (Unify u') mgu'
+generalization-sized {s1} {s2} {p1} {p2} (suc n) eq u | SplitPU s1' s2' (PU pu) lt | Prec sp1 eq1 , Prec sp2 eq2 | s1'' , s2'' , MGU (Unify u') mgu = (s1'' ∘ s1') , (s2'' ∘ s2') , MGU (Unify (trans (∘-eq s1'' s1' p1) (trans u' (sym (∘-eq s2'' s2' p2))))) mgu'
     where 
     mgu' : (sl sr : Sub) →
       sl , sr unifies p1 , p2 →
       (sl ⊑ (s1'' ∘ s1')) × (sr ⊑ (s2'' ∘ s2'))
     mgu' sl sr (Unify u'') with pu sl sr (Unify u'')
-    ... | Prec sp1' eq1' , Prec sp2' eq2' with mgu sp1' sp2' (Unify equation) 
-        where 
+    ... | Prec sp1' eq1' , Prec sp2' eq2' with mgu sp1' sp2' (Unify (trans (sym (∘-eq sp1' s1' p1)) (trans equation (∘-eq sp2' s2' p2))))
+        where
         equation : (sp1' ∘ s1') [ p1 ] ≡ (sp2' ∘ s2') [ p2 ]
         equation rewrite eq1' rewrite eq2' = u''
-    ... | Prec slp eql , Prec srp eqr = (Prec slp equation1) , Prec srp equation2
+    ... | Prec slp eql , Prec srp eqr = (Prec slp (trans equation1 (∘-assoc slp s1'' s1'))) , Prec srp (trans equation2 (∘-assoc srp s2'' s2'))
         where 
         equation1 : sl ≡ (slp ∘ s1'') ∘ s1'
         equation1 rewrite eql rewrite eq1' = refl

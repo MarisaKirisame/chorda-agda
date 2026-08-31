@@ -1,4 +1,8 @@
-{-# OPTIONS --rewriting #-}
+{-# OPTIONS --safe #-}
+
+open import interface
+
+module core (funext : Funext) (VI : VarInterface) where
 
 open import Data.Nat
 open import Data.Fin
@@ -8,23 +12,8 @@ open import Data.Product hiding (map)
 open import Data.Sum hiding (map)
 open import Relation.Binary.PropositionalEquality hiding ([_])
 open import Relation.Nullary.Decidable hiding (map)
-{-# BUILTIN REWRITE _≡_ #-}
 
-record _≅_ (A B : Set) : Set where
-    field 
-        to : A -> B 
-        from : B -> A
-        fromto : ∀{a} -> from (to a) ≡ a
-        tofrom : ∀{b} -> to (from b) ≡ b
-
-postulate 
-    funext : {A B : Set} -> {f g : A -> B} -> ((x : A) -> f x ≡ g x) -> f ≡ g
-    Constructor : Set
-    Var : Set 
-    Cleft : Var ≅ (Var ⊎ Var)
-    _≟v_ : (x y : Var) -> Dec (x ≡ y)
-    Fresh : ℕ -> Var 
-    Fresh-inj : {x y : ℕ} -> (Fresh x ≡ Fresh y) -> x ≡ y
+open VarInterface VI public
 
 L : Var -> Var 
 L x = _≅_.from Cleft (inj₁ x)
@@ -41,9 +30,6 @@ fromto = _≅_.fromto Cleft
 tofrom : {b : Var ⊎ Var} → Cleft ._≅_.to (Cleft ._≅_.from b) ≡ b
 tofrom = _≅_.tofrom Cleft 
 
-{-# REWRITE fromto #-}
-{-# REWRITE tofrom #-}
-
 data Pattern : Set where 
     X : Var -> Pattern
     K : Constructor -> (n : ℕ) -> Vec Pattern n -> Pattern 
@@ -51,12 +37,20 @@ data Pattern : Set where
 Sub : Set 
 Sub = Var -> Pattern
 
-{-# TERMINATING #-}
-_[_] : Sub -> Pattern -> Pattern 
-s [ X x ] = s x
-s [ K k n ps ] = K k n (map (λ p -> (s [ p ])) ps)
+mutual
+    _[_] : Sub -> Pattern -> Pattern
+    s [ X x ] = s x
+    s [ K k n ps ] = K k n (subs s ps)
+
+    subs : ∀{n} -> Sub -> Vec Pattern n -> Vec Pattern n
+    subs s [] = []
+    subs s (p ∷ ps) = (s [ p ]) ∷ subs s ps
 
 infixr 30 _[_]
+
+subs-map : ∀{n} -> (s : Sub) -> (ps : Vec Pattern n) -> subs s ps ≡ map (_[_] s) ps
+subs-map s [] = refl
+subs-map s (p ∷ ps) rewrite subs-map s ps = refl
 
 sid : Sub 
 sid x = X x 
@@ -74,9 +68,8 @@ mutual
         -> sid [ p ] ≡ p 
     sid-eq (X x) = refl
     sid-eq (K k n ps)
+        rewrite subs-map sid ps
         rewrite map-sid-eq ps = refl
-
-{-# REWRITE sid-eq #-}
 
 functional : Pattern -> Pattern -> Set
 functional p1 p2 = (s1 s2 : Sub)
@@ -126,9 +119,13 @@ mutual
         -> (s1 ∘ s2) [ p ] ≡ s1 [ s2 [ p ] ]
     ∘-eq _ _ (X x) = refl
     ∘-eq s1 s2 (K k n ps)
+        rewrite subs-map (s1 ∘ s2) ps
+        rewrite subs-map s2 ps
+        rewrite subs-map s1 (map (_[_] s2) ps)
         rewrite map-fusion {s1} {s2} {ps = ps} = refl
 
-{-# REWRITE ∘-eq #-}
+∘-assoc : (s1 s2 s3 : Sub) -> (s1 ∘ s2) ∘ s3 ≡ s1 ∘ (s2 ∘ s3)
+∘-assoc s1 s2 s3 = funext (λ x → ∘-eq s1 s2 (s3 x))
 
 ∘r-functional : (p1 p2 p3 p4 : Pattern)
         -> (f1 : functional p1 p2) 
@@ -136,8 +133,17 @@ mutual
         -> (s1 s2 : Sub)
         -> (mgu : s1 , s2 mgu p2 , p3)
         -> functional (s1 [ p1 ]) (s2 [ p4 ])
-∘r-functional p1 p2 p3 p4 f1 f2 s1 s2 (MGU (Unify u) _) s3 s4 eq1 with f1 (s3 ∘ s1) (s4 ∘ s1) eq1 
-... | eq2 rewrite u = f2 (s3 ∘ s2) (s4 ∘ s2) eq2
+∘r-functional p1 p2 p3 p4 f1 f2 s1 s2 (MGU (Unify u) _) s3 s4 eq1 =
+    trans (sym (∘-eq s3 s2 p4)) (trans (f2 (s3 ∘ s2) (s4 ∘ s2) premise) (∘-eq s4 s2 p4))
+    where
+    eq2 : (s3 ∘ s1) [ p2 ] ≡ (s4 ∘ s1) [ p2 ]
+    eq2 = f1 (s3 ∘ s1) (s4 ∘ s1) (trans (∘-eq s3 s1 p1) (trans eq1 (sym (∘-eq s4 s1 p1))))
+
+    step : s3 [ s2 [ p3 ] ] ≡ s4 [ s2 [ p3 ] ]
+    step rewrite sym u = trans (sym (∘-eq s3 s1 p2)) (trans eq2 (∘-eq s4 s1 p2))
+
+    premise : (s3 ∘ s2) [ p3 ] ≡ (s4 ∘ s2) [ p3 ]
+    premise = trans (∘-eq s3 s2 p3) (trans step (sym (∘-eq s4 s2 p3)))
 
 data _∘r_≡_ : Rule -> Rule -> Rule -> Set where
     Comp : ∀{p1 p2 p3 p4}

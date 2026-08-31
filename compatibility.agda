@@ -1,10 +1,15 @@
-{-# OPTIONS --rewriting #-}
+{-# OPTIONS --safe #-}
+
+open import interface
+
+module compatibility (funext : Funext) (VI : VarInterface) where
 
 open import Data.Product hiding (map)
 open import Data.Vec hiding ([_])
 open import Relation.Binary.PropositionalEquality hiding ([_])
 
-open import core
+import core
+open module coreI = core funext VI
 
 data pf : Set₁ where 
     PF : (graph : Pattern -> Pattern -> Set)
@@ -79,23 +84,23 @@ data ⟦⟧graph (p1 p2 p3 p4 : Pattern) : Set where
     helper1 (G s eq5 eq6) = G (s ∘ s2) subhelper1 subhelper2
         where 
         subhelper1 : (s ∘ s2) [ p3 ] ≡ p5
-        subhelper1 rewrite eq3 rewrite eq5 = refl
+        subhelper1 = trans (∘-eq s s2 p3) (trans (cong (λ q → s [ q ]) eq3) eq5)
         subhelper2 : (s ∘ s2) [ p4 ] ≡ p6
-        subhelper2 rewrite eq4 rewrite eq6 = refl
+        subhelper2 = trans (∘-eq s s2 p4) (trans (cong (λ q → s [ q ]) eq4) eq6)
     helper2 : ⟦⟧graph p3 p4 p5 p6 → ⟦⟧graph p1 p2 p5 p6
     helper2 (G s eq5 eq6) = G (s ∘ s1) subhelper1 subhelper2
         where 
         subhelper1 : (s ∘ s1) [ p1 ] ≡ p5
-        subhelper1 rewrite eq1 rewrite eq5 = refl
+        subhelper1 = trans (∘-eq s s1 p1) (trans (cong (λ q → s [ q ]) eq1) eq5)
         subhelper2 : (s ∘ s1) [ p2 ] ≡ p6
-        subhelper2 rewrite eq2 rewrite eq6 = refl
+        subhelper2 = trans (∘-eq s s1 p2) (trans (cong (λ q → s [ q ]) eq2) eq6)
 
 ⟦⟧-compatible-inv : 
     {r1 r2 : Rule}
     -> ⟦ r1 ⟧ ≡pf ⟦ r2 ⟧
     -> r1 ≡r r2 
 ⟦⟧-compatible-inv {p1 ↦ p2 [ f1 ]} {p3 ↦ p4 [ f2 ]} eq with eq p1 p2 | eq p3 p4
-⟦⟧-compatible-inv {p1 ↦ p2 [ f1 ]} {p3 ↦ p4 [ f2 ]} eq | eq1 , eq2 | eq3 , eq4 with eq1 (G sid refl refl) | eq4 (G sid refl refl)
+⟦⟧-compatible-inv {p1 ↦ p2 [ f1 ]} {p3 ↦ p4 [ f2 ]} eq | eq1 , eq2 | eq3 , eq4 with eq1 (G sid (sid-eq p1) (sid-eq p2)) | eq4 (G sid (sid-eq p3) (sid-eq p4))
 ⟦⟧-compatible-inv {p1 ↦ p2 [ f1 ]} {p3 ↦ p4 [ f2 ]} eq | eq1 , eq2 | eq3 , eq4 | G s1 eq5 eq6 | G s2 eq7 eq8 = REquiv s2 s1 eq7 eq8 eq5 eq6
 
 ⟦∘⟧ : {r1 r2 r : Rule}
@@ -105,18 +110,26 @@ data ⟦⟧graph (p1 p2 p3 p4 : Pattern) : Set where
     where 
 
     helper1 : ∘graph (⟦⟧graph p1 p2) (⟦⟧graph p3 p4) p5 p6 → ⟦⟧graph (s1 [ p1 ]) (s2 [ p4 ]) p5 p6
-    helper1 (G p (G s3 eq1 eq2) (G s4 eq3 eq4)) with mgu s3 s4 (Unify (trans eq2 (sym eq3))) 
+    helper1 (G p (G s3 eq1 eq2) (G s4 eq3 eq4)) with mgu s3 s4 (Unify (trans eq2 (sym eq3)))
     ... | Prec s5 eq5 , Prec s6 eq6 with f2 (s5 ∘ s2) s4 subhelper
-        where 
+        where
         subhelper : (s5 ∘ s2) [ p3 ] ≡ s4 [ p3 ]
-        subhelper rewrite sym u = trans (cong (λ s -> s [ p2 ]) (sym eq5)) (trans eq2 (sym eq3))
-    ... | thing = G s5 subhelper (trans thing eq4)
-        where 
-        subhelper : (s5 ∘ s1) [ p1 ] ≡ p5
-        subhelper = trans (cong (λ s -> s [ p1 ]) (sym eq5)) eq1
+        subhelper = trans (∘-eq s5 s2 p3)
+            (trans (cong (λ q -> s5 [ q ]) (sym u))
+            (trans (sym (∘-eq s5 s1 p2))
+            (trans (cong (λ s -> s [ p2 ]) (sym eq5))
+            (trans eq2 (sym eq3)))))
+    ... | thing = G s5 subhelper (trans (sym (∘-eq s5 s2 p4)) (trans thing eq4))
+        where
+        subhelper : s5 [ s1 [ p1 ] ] ≡ p5
+        subhelper = trans (sym (∘-eq s5 s1 p1)) (trans (cong (λ s -> s [ p1 ]) (sym eq5)) eq1)
 
     helper2 : ⟦⟧graph (s1 [ p1 ]) (s2 [ p4 ]) p5 p6 → ∘graph (⟦⟧graph p1 p2) (⟦⟧graph p3 p4) p5 p6
-    helper2 (G s3 eq1 eq2) = G (s3 [ s1 [ p2 ] ]) (G (s3 ∘ s1) eq1 refl) (G (s3 ∘ s2) (cong (λ p -> s3 [ p ]) (sym u)) eq2)
+    helper2 (G s3 eq1 eq2) = G (s3 [ s1 [ p2 ] ])
+        (G (s3 ∘ s1) (trans (∘-eq s3 s1 p1) eq1) (∘-eq s3 s1 p2))
+        (G (s3 ∘ s2)
+            (trans (∘-eq s3 s2 p3) (cong (λ p -> s3 [ p ]) (sym u)))
+            (trans (∘-eq s3 s2 p4) eq2))
 
 ∘r-compatible : (r1 r1' r2 r2' r r' : Rule)
     -> (r1 ≡r r1')

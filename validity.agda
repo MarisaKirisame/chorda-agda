@@ -1,4 +1,8 @@
-{-# OPTIONS --rewriting #-}
+{-# OPTIONS --safe #-}
+
+open import interface
+
+module validity (funext : Funext) (VI : VarInterface) where
 
 open import Data.Nat
 open import Data.Vec hiding ([_])
@@ -7,7 +11,8 @@ open import Data.Product hiding (map)
 open import Data.Sum hiding (map)
 open import Relation.Binary.PropositionalEquality hiding ([_])
 
-open import core
+import core
+open module coreI = core funext VI
 
 ↦+-↦* : ∀{p1 p2 R}
     -> p1 ↦+[ R ] p2
@@ -31,10 +36,10 @@ validity-lemma : ∀{R p1 p2 r1 r2 r}
 validity-lemma {R} in1 in2 (Comp {p1} {p2} {p3} {p4} f1 f2 s1 s2 (MGU (Unify eq) _)) (Step _ _ _ _ _ s refl refl) = Cons in1 step1 step2
     where 
     step1 : (s [ s1 [ p1 ] ]) ↦[ p1 ↦ p2 [ f1 ] ] (s [ s1 [ p2 ] ])
-    step1 = (Step _ _ _ _ _ (s ∘ s1) (∘-eq s s1 p1) (∘-eq s s1 p2))
+    step1 = (Step _ _ _ _ _ (s ∘ s1) (sym (∘-eq s s1 p1)) (sym (∘-eq s s1 p2)))
 
     step2 : (s [ s1 [ p2 ] ]) ↦+[ R ] (s [ s2 [ p4 ] ]) 
-    step2 rewrite eq = (Step in2 (Step _ _ _ _ _ (s ∘ s2) (∘-eq s s2 p3) (∘-eq s s2 p4)))
+    step2 rewrite eq = (Step in2 (Step _ _ _ _ _ (s ∘ s2) (sym (∘-eq s s2 p3)) (sym (∘-eq s s2 p4))))
 
 validity : ∀{r1 r2 r R}
     -> R r1 
