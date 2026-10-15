@@ -1,16 +1,16 @@
 # Mechanization for Incremental Live Programming via Shortcut Memoization
 
-This directory contains the Agda mechanization of the theorems in "Incremental Live Programming via Shortcut Memoization". To check the proofs, an installation of [Agda](https://wiki.portal.chalmers.se/agda/pmwiki.php?n=Main.Download) is required. The proofs are known to load cleanly under Agda `2.7.0.1` with agda-stdlib `2.1.1`.
+This directory contains the Agda mechanization of the theorems in "Incremental Live Programming via Shortcut Memoization". To check the proofs, an installation of [Agda](https://wiki.portal.chalmers.se/agda/pmwiki.php?n=Main.Download) is required. The proofs are known to load cleanly under Agda `2.7.0.1` with agda-stdlib `2.1.1`, and under Agda `2.8.0.2` with agda-stdlib `2.4`.
 
 Once installed, `agda --safe all.agda` in the top-level directory will cause Agda to check all the proofs. Every module is `--safe`: the development uses no postulates, rewrite rules, or termination pragmas.
 
 ## Contents
 
-- [core.agda](./core.agda) contains definitions 2.1 - 2.5 and 2.8
-- [compatibility.agda](compatibility.agda) contains Theorem 2.6 (Compatibility of Rule Composition)
-- [existence.agda](./existence.agda) contains Theorem 2.7 (Shortcut Existence)
-- [validity.agda](./validity.agda) contains Theorem 2.9 (Shortcut Validity)
-- [linearity.agda](./linearity.agda) proves that composition preserves left-linearity
+- [core.agda](./core.agda) contains Definitions 2.1--2.4 and 2.7
+- [compatibility.agda](compatibility.agda) contains Theorem 2.5 (Compatibility of Rule Composition), associativity of composition (`∘r-assoc`), and the corollary that the composed rule is the most general shortcut (`∘r-most-general`); note that `_∘pf_` composes partial functions in diagrammatic order, so `⟦ r1 ⟧ ∘pf ⟦ r2 ⟧` applies `r1` first
+- [existence.agda](./existence.agda) contains Theorem 2.6 (Shortcut Existence)
+- [validity.agda](./validity.agda) contains Theorem 2.8 (Shortcut Validity)
+- [linearity.agda](./linearity.agda) contains Theorem 2.9 (Shortcut Linearity): composition preserves left-linearity
 - [linearity-base.agda](./linearity-base.agda) defines variable occurrences and linear patterns, with shape-preserving linearization and reflection lemmas
 - [linearity-matching.agda](./linearity-matching.agda) proves shape-preserving matching for linear patterns
 - [interface.agda](./interface.agda) contains the assumptions the development is parameterized over

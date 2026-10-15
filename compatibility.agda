@@ -166,3 +166,12 @@ data ⟦⟧graph (p1 p2 p3 p4 : Pattern) : Set where
     (≡pf-trans (∘pf-≡pf ≡pf-refl (≡pf-sym eq2)) 
     (≡pf-trans (∘pf-assoc _ _ _) 
     (≡pf-trans (∘pf-≡pf eq1 ≡pf-refl) eq4))))
+
+-- The composed rule is the most general shortcut: any rule whose
+-- interpretation is the composite of the two interpretations
+-- (in diagrammatic order, r1 first) is equivalent to the composition.
+∘r-most-general : ∀{r1 r2 r r'}
+    -> r1 ∘r r2 ≡ r
+    -> ⟦ r' ⟧ ≡pf (⟦ r1 ⟧ ∘pf ⟦ r2 ⟧)
+    -> r' ≡r r
+∘r-most-general c eq = ⟦⟧-compatible-inv (≡pf-trans eq (⟦∘⟧ c))

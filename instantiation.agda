@@ -1,8 +1,8 @@
 {-# OPTIONS --safe #-}
 
--- Witnesses, checked under --safe, that every postulate in core.agda
--- except funext is satisfiable with Var = Constructor = ℕ. funext is
--- independent of Agda's core type theory and remains an axiom.
+-- Witnesses, checked under --safe, that the VarInterface assumptions in
+-- interface.agda are satisfiable with Var = Constructor = ℕ. funext is
+-- independent of Agda's core type theory and remains a parameter.
 
 open import Data.Nat
 open import Data.Nat.Properties using (_≟_)
